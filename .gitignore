@@ -76,3 +76,4 @@ secrets.*
 
 # ============ 工具索引 ============
 .codegraph/
+.cursor/
