@@ -1,0 +1,82 @@
+# QA-RL 多轮检索 Agent 实验。
+# 交互协议由两部分组成：
+#   1. 模型输出 <search>关键词</search>：环境检索 /data/docs，并把片段作为下一轮 observation。
+#   2. 模型输出 \boxed{答案}：环境调用 QA reward 判分，并结束该题 rollout。
+# 这样写的原因是考试要求“先查资料再作答”，而 GRPO 的多轮环境正好能把检索作为中间动作建模。
+
+defaults:
+  # 复用 sliding_puzzle 的多轮 GRPO 基底，不是为了继续玩拼图，
+  # 而是借它的 max_rollout_turns / 多轮 rollout 训练链路。
+  # 下面 env._override_=true 会把拼图环境替换成 qa_search。
+  - ../../configs/base/grpo_sliding_puzzle.yaml
+  - ../../configs/models/qwen3.5-9b.yaml
+  - ../../configs/base/grpo_megatron.yaml
+  - ../../configs/base/grpo_lora.yaml
+
+policy:
+  model_name: "Qwen/Qwen3.5-9B-Base"
+  tokenizer:
+    name: "Qwen/Qwen3.5-9B-Base"
+  # 多轮检索会把“题目 + 检索片段 + 推理 + 答案”都塞进上下文，
+  # 所以比单轮 QA 需要更长的序列；如果 OOM，优先降 snippet_chars 或这里。
+  max_total_sequence_length: 3072
+  # 必须等于 grpo.num_prompts_per_step * grpo.num_generations_per_prompt。
+  train_global_batch_size: 32
+  generation:
+    # 每轮生成不能太短，否则模型可能还没写出 <search> 或 \boxed{} 就被截断；
+    # 也不能无限长，否则一次 assistant 回复吃满上下文，后面没有空间接检索结果。
+    max_new_tokens: 768
+    temperature: 1.0
+    vllm_cfg:
+      # 单卡 colocated 下 vLLM 和训练分时共享显存；0.45 是偏保守的起跑值。
+      gpu_memory_utilization: 0.45
+
+grpo:
+  num_prompts_per_step: 4
+  # 每题采样多条回复，GRPO 才能在同一题上比较“好轨迹”和“坏轨迹”。
+  num_generations_per_prompt: 8
+  # 4 轮大致对应：检索 -> 再检索/分析 -> 作答；过大容易堆长上下文和拖慢训练。
+  max_rollout_turns: 4
+  # 先用 100 步验证链路和趋势，accuracy 稳定上升后再加大。
+  max_num_steps: 100
+  val_period: 20
+  val_at_start: true
+  val_at_end: true
+  max_val_samples: 64
+  val_batch_size: 32
+
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+
+data:
+  shuffle: true
+  input_key: query
+  output_key: expected_answer
+  data_dir: /data/datasets/qa_rl
+  # null 表示使用 run.py 内置的协议提示词。若日志里模型不爱检索，
+  # 可以在这里写更强的中文/英文提示，而不用改代码。
+  system_prompt: null
+
+env:
+  # 覆盖 grpo_sliding_puzzle.yaml 中的 sliding_puzzle_game 环境。
+  # 如果不加 override，配置里会同时存在拼图和 QA 两个 env，容易让 task_name 对不上。
+  _override_: true
+  qa_search:
+    cfg:
+      # 正式考试资料目录。也可用 QA_DOCS_DIR 环境变量临时覆盖，方便本地调试。
+      docs_dir: /data/docs
+      # 限制检索次数是为了防止模型无限查资料；最终奖励仍来自 \boxed{} 答案。
+      max_searches: 3
+      # top_k 和 snippet_chars 共同决定每次 observation 的长度。
+      # 太大容易挤爆上下文，太小可能证据不足。
+      top_k: 4
+      snippet_chars: 700
+      # true 时复用简答 LLM judge；如果 judge 服务不稳定，可改 false 走纯规则奖励。
+      use_judge: true
+
+logger:
+  wandb_enabled: false
+  tensorboard_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 3
