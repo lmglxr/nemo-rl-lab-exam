@@ -205,7 +205,7 @@ def submit(
     with cli_ui.submit_progress() as reporter:
         res = cli_login.submit_via_server(exp_path, profile, ROOT, project=project, reporter=reporter)
     gpus = res.get("requested_gpus")
-    msg = f"✓ 已提交  作业 {res.get('job_id')}"
+    msg = f"[OK] 已提交  作业 {res.get('job_id')}"
     if gpus is not None:
         msg += f"  ·  {gpus} GPU"
     if res.get("dry_run"):
@@ -240,7 +240,7 @@ def clean(
             abort=True,
         )
     res = cli_login.clean_via_server(exp_path)
-    typer.secho(f"✓ 已提交清理  作业 {res.get('job_id')}", fg=typer.colors.GREEN)
+    typer.secho(f"[OK] 已提交清理  作业 {res.get('job_id')}", fg=typer.colors.GREEN)
     typer.echo(f"  查看进度：lab logs {res.get('job_id')}")
 
 
@@ -257,9 +257,9 @@ def validate(
         )
         raise typer.Exit(1)
     if warns:
-        cli_ui.emit_warning(f"{exp_path}：{len(warns)} 处告警", body="\n".join(f"• {w}" for w in warns))
+        cli_ui.emit_warning(f"{exp_path}：{len(warns)} 处告警", body="\n".join(f"- {w}" for w in warns))
     suffix = f"（{len(warns)} 个告警）" if warns else ""
-    typer.secho(f"✓ {exp_path}：通过{suffix}", fg=typer.colors.GREEN)
+    typer.secho(f"[OK] {exp_path}：通过{suffix}", fg=typer.colors.GREEN)
 
 
 def _flatten(obj, prefix: str = "") -> dict[str, str]:
@@ -353,7 +353,7 @@ def doctor() -> None:
     try:
         who = cli_login.usage_via_server()
         q = who.get("quota") or {}
-        typer.secho("✓ 已登录，连接正常", fg=typer.colors.GREEN)
+        typer.secho("[OK] 已登录，连接正常", fg=typer.colors.GREEN)
         cap = q.get("max_concurrent_gpus")
         typer.echo(
             f"  配额：GPU {'不限' if cap is None else cap}"
@@ -362,7 +362,7 @@ def doctor() -> None:
     except Exception:  # noqa: BLE001
         typer.secho("✗ 无法连接 Lab，请检查网络或重新登录", fg=typer.colors.RED)
         raise typer.Exit(1) from None
-    typer.secho("\n✓ 可以提交训练了", fg=typer.colors.GREEN)
+    typer.secho("\n[OK] 可以提交训练了", fg=typer.colors.GREEN)
 
 
 # ----------------------------- 训练后闭环（export / eval；提交到集群执行）-----------------------------
@@ -373,7 +373,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
         res = cli_login.submit_post_via_server(action, exp_path, profile, flags, ROOT, reporter=reporter)
     gpus = res.get("requested_gpus")
     label = "导出" if action == "export" else "评测"
-    msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
+    msg = f"[OK] 已提交{label}  作业 {res.get('job_id')}"
     if gpus is not None:
         msg += f"  ·  {gpus} GPU"
     if res.get("dry_run"):
@@ -628,7 +628,7 @@ def job_stop(
 ) -> None:
     cli_login.gate("job-stop")
     cli_login.job_control_via_server("stop", job_id)
-    typer.secho("✓ 已停止作业", fg=typer.colors.GREEN)
+    typer.secho("[OK] 已停止作业", fg=typer.colors.GREEN)
 
 
 @job_app.command("delete", help="删除某个已结束的作业记录（运行中需先 stop）")
@@ -637,7 +637,7 @@ def job_delete(
 ) -> None:
     cli_login.gate("job-delete")
     cli_login.job_control_via_server("delete", job_id)
-    typer.secho("✓ 已删除记录", fg=typer.colors.GREEN)
+    typer.secho("[OK] 已删除记录", fg=typer.colors.GREEN)
 
 
 @job_app.command("cancel-all", help="停止我所有运行中 / 排队中的作业")
@@ -648,14 +648,14 @@ def job_cancel_all(
     if not yes:
         typer.confirm("将停止你【全部】运行中/排队中的作业，确认？", abort=True)
     res = cli_login.batch_via_server("cancel-all")
-    typer.secho(f"✓ 已停止 {res.get('stopped', 0)} 个作业", fg=typer.colors.GREEN)
+    typer.secho(f"[OK] 已停止 {res.get('stopped', 0)} 个作业", fg=typer.colors.GREEN)
 
 
 @job_app.command("clean", help="清理已结束作业的显示记录")
 def job_clean() -> None:
     cli_login.gate("job-clean")
     res = cli_login.batch_via_server("clean")
-    typer.secho(f"✓ 已清理 {res.get('deleted', 0)} 个终态作业记录", fg=typer.colors.GREEN)
+    typer.secho(f"[OK] 已清理 {res.get('deleted', 0)} 个终态作业记录", fg=typer.colors.GREEN)
 
 
 # ----------------------------- 中心化 Lab 服务：登录/身份/配额 -----------------------------
@@ -702,7 +702,7 @@ def completion_install(
     except typer.BadParameter as e:
         cli_ui.fail(str(e))
     label = f"{shell.value}（./lab shim）" if wrapper else shell.value
-    typer.secho(f"✓ 已安装 {label} 补全 → {path}", fg=typer.colors.GREEN)
+    typer.secho(f"[OK] 已安装 {label} 补全 -> {path}", fg=typer.colors.GREEN)
     typer.echo("  请重开终端或 source 对应配置文件后生效")
     if wrapper:
         typer.echo("  在仓库根目录：./lab sub<Tab>、./lab submit <Tab>")

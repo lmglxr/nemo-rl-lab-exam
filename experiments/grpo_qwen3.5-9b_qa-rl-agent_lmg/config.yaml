@@ -71,6 +71,11 @@ env:
       # 太大容易挤爆上下文，太小可能证据不足。
       top_k: 4
       snippet_chars: 700
+      # Require at least one /data/docs observation before a final answer can get positive reward.
+      # This turns answer-only guessing into negative feedback and teaches a clean search turn first.
+      require_search_before_answer: true
+      no_search_penalty: -0.2
+      mixed_action_penalty: -0.2
       # true 时复用简答 LLM judge；如果 judge 服务不稳定，可改 false 走纯规则奖励。
       use_judge: true
 

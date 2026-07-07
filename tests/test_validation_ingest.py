@@ -11,6 +11,9 @@ def test_extract_message_log_samples():
     assert len(samples) == 2
     assert samples[0]["user"] == "Q1"
     assert samples[0]["assistant"] == "A1"
+    assert samples[0]["searched"] is False
+    assert samples[0]["search_count"] == 0
+    assert samples[0]["search_queries"] == []
     assert avg == 0.5
     assert dist == [{"reward": 0.0, "count": 1}, {"reward": 1.0, "count": 1}]
 
@@ -51,3 +54,20 @@ def test_validation_ctx_detects_step():
     assert active_validation_step() == 42
     clear_validation_step()
     assert active_validation_step() is None
+
+
+def test_extract_search_metadata_from_validation_samples():
+    from common.observability.validation_extract import extract_message_log_samples
+
+    logs = [
+        [
+            {"role": "user", "content": "Q"},
+            {"role": "assistant", "content": "<search>CSIN201 tank 9</search>"},
+            {"role": "environment", "content": "[search results]\n..."},
+            {"role": "assistant", "content": r"根据资料，答案是 \boxed{A}"},
+        ]
+    ]
+    samples, _dist, _avg = extract_message_log_samples(logs, [1.0])
+    assert samples[0]["searched"] is True
+    assert samples[0]["search_count"] == 1
+    assert samples[0]["search_queries"] == ["CSIN201 tank 9"]

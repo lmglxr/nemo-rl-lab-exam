@@ -36,6 +36,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from common.rewards.qa_reward import extract_boxed
+from common.rewards.search_policy import apply_no_search_policy
 
 
 class QASearchMetadata(TypedDict, total=False):
@@ -132,6 +133,11 @@ class QASearchEnv(EnvironmentInterface[QASearchMetadata]):
         self.top_k = int(self.cfg.get("top_k", 4))
         self.snippet_chars = int(self.cfg.get("snippet_chars", 700))
         self.use_judge = bool(self.cfg.get("use_judge", True))
+        self.require_search_before_answer = bool(
+            self.cfg.get("require_search_before_answer", True)
+        )
+        self.no_search_penalty = float(self.cfg.get("no_search_penalty", -0.2))
+        self.mixed_action_penalty = float(self.cfg.get("mixed_action_penalty", -0.2))
         self.searcher = MarkdownSearcher(self.docs_dir)
 
         # 复用原来 qa_env 的 reward，而不是重写判题逻辑。
@@ -177,6 +183,30 @@ class QASearchEnv(EnvironmentInterface[QASearchMetadata]):
 
             search_match = _SEARCH_RE.search(completion)
             has_boxed_answer = extract_boxed(completion) is not None
+            searched = search_count > 0
+
+            if (
+                self.require_search_before_answer
+                and not searched
+                and search_match
+                and has_boxed_answer
+            ):
+                # A single assistant turn must be either a tool action or a final
+                # answer.  Penalizing mixed output teaches the policy to emit a
+                # clean `<search>...</search>` first, wait for evidence, and only
+                # then produce `\boxed{...}` in a later turn.
+                observations.append({
+                    "role": "environment",
+                    "content": (
+                        "Invalid mixed action: search and final answer were emitted "
+                        "in the same turn. First search, then answer after the "
+                        "search results."
+                    ),
+                })
+                rewards.append(self.mixed_action_penalty)
+                terminateds.append(True)
+                next_metadata.append(None)
+                continue
 
             if search_match and not has_boxed_answer and search_count < self.max_searches:
                 # 协议分支 1：纯检索动作。
@@ -207,8 +237,23 @@ class QASearchEnv(EnvironmentInterface[QASearchMetadata]):
             # 协议分支 3：最终作答或无效动作。
             # 只要没有走检索分支，就交给 QA reward 判分；如果模型没写 \boxed{}，
             # 原有 reward 会给格式扣分，这比在环境里另写一套规则更一致。
-            reward = float(self._reward_fn([query], [completion], [expected])[0])
-            observations.append({"role": "environment", "content": f"score: {reward:.3f}"})
+            raw_reward = float(self._reward_fn([query], [completion], [expected])[0])
+            reward = apply_no_search_policy(
+                raw_reward,
+                searched=searched,
+                require_search=self.require_search_before_answer,
+                no_search_penalty=self.no_search_penalty,
+            )
+            note = ""
+            if reward != raw_reward:
+                note = (
+                    " (final answer submitted before any search; "
+                    "reward capped by require_search_before_answer)"
+                )
+            observations.append({
+                "role": "environment",
+                "content": f"score: {reward:.3f}{note}",
+            })
             rewards.append(reward)
             # 最终答案判分后必须结束，否则模型可能在已得分后继续生成，
             # 造成 rollout 轨迹和 reward 归因混乱。

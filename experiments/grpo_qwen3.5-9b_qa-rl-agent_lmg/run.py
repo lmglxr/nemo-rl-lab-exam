@@ -70,7 +70,8 @@ class QAAgentJsonlDataset(Dataset):
             # 环境只会机械识别 <search>...</search> 和 \boxed{}；
             # 如果不在 prompt 里告诉模型这些格式，模型很可能自由发挥，导致环境无法分支。
             "You are a technical exam QA agent. You may search local markdown documents "
-            "before answering. To search, output exactly <search>keywords</search>. "
+            "before answering. You must search at least once before giving the final answer. "
+            "To search, output exactly <search>keywords</search> and nothing else in that turn. "
             "After receiving search results, continue reasoning or search again. "
             "When ready, put the final answer in \\boxed{...}. Do not omit \\boxed{}."
         )

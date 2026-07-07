@@ -1,6 +1,11 @@
 """从 NeMo-RL message_logs 提取结构化验证样本（与 console log_parse 字段对齐）。"""
 from __future__ import annotations
 
+import re
+
+
+_SEARCH_RE = re.compile(r"<search>(.*?)</search>", re.IGNORECASE | re.DOTALL)
+
 
 def _role_text(message_log: list, role: str) -> str:
     parts: list[str] = []
@@ -14,6 +19,21 @@ def _role_text(message_log: list, role: str) -> str:
             if content is not None:
                 parts.append(str(content))
     return "\n".join(parts).strip()
+
+
+def _search_queries(message_log: list) -> list[str]:
+    queries: list[str] = []
+    for msg in message_log:
+        if not isinstance(msg, dict):
+            continue
+        if str(msg.get("role", "")).upper() != "ASSISTANT":
+            continue
+        content = str(msg.get("content", ""))
+        for match in _SEARCH_RE.finditer(content):
+            query = re.sub(r"\s+", " ", match.group(1)).strip()
+            if query:
+                queries.append(query)
+    return queries
 
 
 def extract_message_log_samples(
@@ -47,6 +67,7 @@ def extract_message_log_samples(
     for idx in indices:
         ml = message_logs[idx]
         reward = float(rewards[idx])
+        search_queries = _search_queries(ml)
         samples.append(
             {
                 "idx": idx + 1,  # 原始位置，1-based
@@ -54,6 +75,11 @@ def extract_message_log_samples(
                 "user": _role_text(ml, "user"),
                 "assistant": _role_text(ml, "assistant"),
                 "env": _role_text(ml, "environment") or _role_text(ml, "system"),
+                # Make retrieval behavior visible in validation dashboards without
+                # requiring a human to inspect the full transcript manually.
+                "searched": bool(search_queries),
+                "search_count": len(search_queries),
+                "search_queries": search_queries,
             }
         )
 
